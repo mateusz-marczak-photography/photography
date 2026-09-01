@@ -1,0 +1,652 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mateusz Marczak Photography</title>
+<link rel="icon" type="image/png" href="assets/favicon.png">
+<link rel="apple-touch-icon" href="assets/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Julius+Sans+One&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #ffffff;
+    --fg: #171717;
+    --muted: #9a9a9a;
+    --gap: 12px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  /* no visible scrollbar (scrolling still works), so layout never shifts
+     and the lightbox has clean symmetric edges */
+  html { overflow-y: scroll; scrollbar-width: none; -webkit-text-size-adjust: 100%; }
+  html::-webkit-scrollbar { display: none; width: 0; }
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: "Helvetica Neue", Helvetica, Arial, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  header {
+    text-align: center;
+    padding: 76px 24px 36px;
+  }
+  header h1 {
+    margin: 0;
+    font-family: "Julius Sans One", "Segoe UI", Helvetica, Arial, sans-serif;
+    font-size: clamp(28px, 3vw, 40px);
+    font-weight: 400;
+    letter-spacing: 0.12em;
+    text-indent: 0.12em; /* compensate trailing letter-spacing so it centers */
+    text-transform: uppercase;
+    color: #1c1c1c;
+  }
+  header h1 a { color: inherit; text-decoration: none; }
+  header p {
+    margin: 16px 0 0;
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: 0.34em;
+    text-indent: 0.34em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  main {
+    max-width: 3200px;
+    margin: 0 auto;
+    padding: 0 clamp(18px, 3vw, 60px) var(--gap);
+  }
+
+  /* Group navigation */
+  .groups {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 12px 34px;
+    margin: 0 auto 52px;
+    max-width: 1200px;
+    padding: 0 12px;
+  }
+  .groups a {
+    font-size: 13px;
+    letter-spacing: 0.22em;
+    text-indent: 0.22em;
+    text-transform: uppercase;
+    color: var(--muted);
+    text-decoration: none;
+  }
+  .groups a:hover { color: var(--fg); }
+  .groups a.active { color: var(--fg); }
+
+  .gridwrap { position: relative; }
+  .grid {
+    columns: 3;
+    column-gap: var(--gap);
+    transition: opacity 0.22s ease;
+  }
+  /* crossfade between views: the new grid fades in under a fading snapshot of the old */
+  .grid.entering { opacity: 0; transition: none; }
+  .grid.old {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    pointer-events: none;
+    transition: opacity 0.22s ease;
+  }
+  .grid.old.fadeout { opacity: 0; }
+  @media (max-width: 1100px) { .grid { columns: 2; } }
+  @media (max-width: 620px)  { .grid { columns: 1; } }
+  /* On the All page the column split is pinned (see COL_BREAKS in the script)
+     so adding photos doesn't reshuffle what is visible on first open. */
+  @media (min-width: 1101px) {
+    .grid.all figure.colbreak { break-after: column; }
+  }
+  .grid figure {
+    margin: 0 0 var(--gap);
+    break-inside: avoid;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .grid { transition: none !important; }
+  }
+  .grid img {
+    display: block;
+    width: 100%;
+    height: auto;
+    cursor: pointer;
+  }
+
+  /* Divider between batches inside a filtered group */
+  .divider {
+    column-span: all;
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    margin: 30px 0 42px;
+    font-size: 12px;
+    letter-spacing: 0.3em;
+    text-indent: 0.3em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .divider::before, .divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: #e5e5e5;
+  }
+
+  footer {
+    text-align: center;
+    padding: 56px 24px 40px;
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-indent: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  /* Site scrollbar (native one is hidden) */
+  .sb {
+    position: fixed;
+    top: 0; right: 0; bottom: 0;
+    width: 14px;
+    z-index: 9; /* stays under the lightbox */
+    opacity: 0;
+    transition: opacity 0.25s ease;
+  }
+  .sb.visible { opacity: 1; }
+  .sb .thumb {
+    position: absolute;
+    right: 4px;
+    width: 7px;
+    border-radius: 4px;
+    background: #cdcdcd;
+  }
+  .sb .thumb:hover, .sb.dragging .thumb { background: #9a9a9a; }
+
+  /* Lightbox */
+  .lb {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    overflow: hidden;
+    background: #fff;
+    touch-action: none; /* we handle swipes ourselves */
+  }
+  .lb.idle { cursor: none; }
+  .lb[hidden] { display: none; }
+  /* sliding strip: [prev][current][next], each cell one viewport wide */
+  .lbTrack {
+    position: absolute;
+    top: 0; left: 0; height: 100%;
+    display: flex;
+    will-change: transform;
+  }
+  .lbTrack.animate { transition: transform 0.28s cubic-bezier(0.22, 0.61, 0.36, 1); }
+  .lbCell {
+    height: 100%;
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .lbCell img { display: block; }
+  .lb button {
+    position: absolute;
+    background: none;
+    border: 0;
+    color: #b3b3b3;
+    font-family: inherit;
+    font-size: 34px;
+    font-weight: 200;
+    line-height: 1;
+    padding: 18px;
+    cursor: pointer;
+    transition: opacity 0.5s ease;
+  }
+  .lb button:hover { color: #111; }
+  .lb .close { top: 8px; right: 12px; font-size: 26px; }
+  /* arrows at a fixed spot near the screen edges, independent of photo width */
+  .lb .prev, .lb .next { top: 50%; transform: translateY(-50%); }
+  .lb .prev { left: 8px; }
+  .lb .next { right: 8px; }
+  .lb .count {
+    position: absolute;
+    bottom: 16px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 11px;
+    letter-spacing: 0.22em;
+    color: #a3a3a3;
+    user-select: none;
+    transition: opacity 0.5s ease;
+  }
+  .lb.idle button, .lb.idle .count { opacity: 0; pointer-events: none; }
+
+  /* Mobile */
+  @media (max-width: 620px) {
+    header { padding: 44px 16px 22px; }
+    header h1 { font-size: 18px; letter-spacing: 0.1em; text-indent: 0.1em; }
+    header p { font-size: 11px; margin-top: 10px; }
+    .groups { gap: 8px 22px; margin: 0 auto 32px; }
+    .groups a { font-size: 12px; padding: 4px 2px; } /* padding = easier tap target */
+    .divider { margin: 22px 0 30px; }
+    .sb { display: none; } /* mouse-driven; native touch scrolling needs no bar */
+    .lb .prev, .lb .next { display: none; } /* swipe or tap sides instead */
+    .lb .close { padding: 16px; } /* bigger tap target */
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><a href="#">Mateusz Marczak</a></h1>
+  <p>Photography</p>
+</header>
+
+<main>
+  <nav class="groups" id="groups"></nav>
+  <div class="gridwrap">
+    <div class="grid" id="grid"></div>
+  </div>
+</main>
+
+<footer>© 2026 Mateusz Marczak</footer>
+
+<div class="sb" id="sb"><div class="thumb" id="sbThumb"></div></div>
+
+<div class="lb" id="lb" hidden>
+  <div class="lbTrack" id="lbTrack">
+    <div class="lbCell"><img id="lbImgPrev" alt=""></div>
+    <div class="lbCell"><img id="lbImg" alt=""></div>
+    <div class="lbCell"><img id="lbImgNext" alt=""></div>
+  </div>
+  <button class="close" aria-label="Close">✕</button>
+  <button class="prev" aria-label="Previous">‹</button>
+  <button class="next" aria-label="Next">›</button>
+  <div class="count" id="lbCount"></div>
+</div>
+
+<script>
+  // always fetch the current photo list (it changes when build-images.ps1 runs)
+  document.write('<script src="assets/photos.js?ts=' + Date.now() + '"><\/script>');
+</script>
+<script>
+(function () {
+  // Groups are defined by photo number ranges (from photos/ filenames).
+  // A group with several segments shows a labeled divider between them
+  // when that group is filtered.
+  // photos to hide from the site (files stay in photos/ untouched)
+  var HIDDEN = ['017b.jpg'];
+  // All page: these photos end column 1 and column 2 on desktop, so the
+  // column tops stay put when new photos are added. Update to rebalance.
+  var COL_BREAKS = ['017a.jpg', '032a.jpg'];
+  var ALL_PHOTOS = PHOTOS.filter(function (p) { return HIDDEN.indexOf(p.f) === -1; });
+
+  var GROUPS = [
+    { title: "Scotland",    segments: [{ from: 1, to: 9 }] },
+    { title: "Stockholm",   segments: [{ from: 10, to: 12 },
+                                       { label: "Autumn 2025", from: 47, to: 48 }] },
+    { title: "Italy",       segments: [{ from: 13, to: 17 }] },
+    { title: "Paris",       segments: [{ from: 18, to: 31 },
+                                       { label: "Autumn", from: 49, to: 51 }] },
+    { title: "Côte d'Azur", segments: [{ from: 32, to: 46 }] }
+  ];
+
+  var groupsEl = document.getElementById('groups');
+  var grid = document.getElementById('grid');
+  var lb = document.getElementById('lb');
+  var lbTrack = document.getElementById('lbTrack');
+  var lbCells = lbTrack.children;
+  var lbImgs = [
+    document.getElementById('lbImgPrev'),
+    document.getElementById('lbImg'),
+    document.getElementById('lbImgNext')
+  ];
+  var lbCount = document.getElementById('lbCount');
+  var viewPhotos = [];
+  var current = -1;
+  var idleTimer = null;
+  var navLinks = {};
+
+  GROUPS.forEach(function (g) {
+    g.slug = g.title.normalize('NFD')
+      .replace(new RegExp('[\\u0300-\\u036f]', 'g'), '')
+      .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    g.segments.forEach(function (s) {
+      s.photos = ALL_PHOTOS.filter(function (p) {
+        var n = parseInt(p.f, 10);
+        return n >= s.from && n <= s.to;
+      });
+    });
+  });
+
+  // Nav: All + one link per group
+  function addNavLink(label, slug) {
+    var a = document.createElement('a');
+    a.href = '#' + slug;
+    a.textContent = label;
+    groupsEl.appendChild(a);
+    navLinks[slug] = a;
+  }
+  addNavLink('All', '');
+  GROUPS.forEach(function (g) { addNavLink(g.title, g.slug); });
+
+  function setActive(slug) {
+    Object.keys(navLinks).forEach(function (k) {
+      navLinks[k].classList.toggle('active', k === slug);
+    });
+  }
+
+  // items: photo objects, or { label: '...' } for a divider
+  function renderGrid(items) {
+    grid.innerHTML = '';
+    viewPhotos = [];
+    var di = 0;
+    items.forEach(function (it) {
+      var el;
+      if (!it.f) {
+        el = document.createElement('div');
+        el.className = 'divider';
+        el.textContent = it.label;
+      } else {
+        var idx = viewPhotos.length;
+        viewPhotos.push(it);
+        el = document.createElement('figure');
+        if (COL_BREAKS.indexOf(it.f) !== -1) el.classList.add('colbreak');
+        var img = document.createElement('img');
+        img.src = 'assets/img/thumb/' + it.f;
+        img.width = it.w;
+        img.height = it.h;
+        img.loading = 'lazy';
+        img.alt = 'Photograph ' + (idx + 1);
+        img.addEventListener('click', function () { openLb(idx); });
+        el.appendChild(img);
+      }
+      grid.appendChild(el);
+    });
+  }
+
+  // Crossfade between views: swap content immediately, keep a fading
+  // snapshot of the old view on top so there is never a blank moment.
+  function transitionTo(items, isAll) {
+    var wrap = grid.parentNode;
+    var stale = wrap.querySelector('.grid.old');
+    if (stale) wrap.removeChild(stale);
+
+    var hadContent = grid.children.length > 0;
+    if (hadContent) {
+      var old = grid.cloneNode(true);
+      old.removeAttribute('id');
+      old.classList.add('old');
+      wrap.appendChild(old);
+      void old.offsetWidth;
+      old.classList.add('fadeout');
+      setTimeout(function () {
+        if (old.parentNode) old.parentNode.removeChild(old);
+      }, 260);
+      grid.classList.add('entering');
+    }
+    grid.classList.toggle('all', !!isAll);
+    renderGrid(items);
+    window.scrollTo(0, 0);
+    if (hadContent) {
+      void grid.offsetWidth; // flush styles so the fade-in animates
+      grid.classList.remove('entering');
+    }
+    updateThumb();
+  }
+
+  // Custom scrollbar: appears on scroll or hover, draggable, hides itself
+  var sb = document.getElementById('sb');
+  var sbThumb = document.getElementById('sbThumb');
+  var sbTimer = null;
+  var sbDragging = false;
+  var sbDragOffset = 0;
+
+  function updateThumb() {
+    var doc = document.documentElement;
+    var sh = doc.scrollHeight, ch = doc.clientHeight;
+    if (sh <= ch + 1) { sb.style.display = 'none'; return; }
+    sb.style.display = '';
+    var h = Math.max(40, ch * ch / sh);
+    sbThumb.style.height = h + 'px';
+    sbThumb.style.top = ((ch - h) * (window.scrollY / (sh - ch))) + 'px';
+  }
+  function sbHideSoon() {
+    clearTimeout(sbTimer);
+    sbTimer = setTimeout(function () {
+      if (!sbDragging) sb.classList.remove('visible');
+    }, 900);
+  }
+  function sbShow() {
+    updateThumb();
+    sb.classList.add('visible');
+    sbHideSoon();
+  }
+  window.addEventListener('scroll', sbShow, { passive: true });
+  window.addEventListener('resize', updateThumb);
+  sb.addEventListener('mouseenter', function () {
+    updateThumb();
+    sb.classList.add('visible');
+    clearTimeout(sbTimer);
+  });
+  sb.addEventListener('mouseleave', function () { sbHideSoon(); });
+  sb.addEventListener('mousedown', function (e) {
+    e.preventDefault();
+    var doc = document.documentElement;
+    var h = sbThumb.offsetHeight;
+    if (e.target === sbThumb) {
+      sbDragOffset = e.clientY - sbThumb.getBoundingClientRect().top;
+    } else {
+      sbDragOffset = h / 2; // grabbed the track: center thumb on the cursor
+      sbMoveTo(e.clientY);
+    }
+    sbDragging = true;
+    sb.classList.add('dragging');
+  });
+  function sbMoveTo(clientY) {
+    var doc = document.documentElement;
+    var ch = doc.clientHeight, sh = doc.scrollHeight;
+    var h = sbThumb.offsetHeight;
+    var top = Math.min(Math.max(clientY - sbDragOffset, 0), ch - h);
+    window.scrollTo(0, top / (ch - h) * (sh - ch));
+  }
+  window.addEventListener('mousemove', function (e) {
+    if (sbDragging) sbMoveTo(e.clientY);
+  });
+  window.addEventListener('mouseup', function () {
+    if (!sbDragging) return;
+    sbDragging = false;
+    sb.classList.remove('dragging');
+    sbHideSoon();
+  });
+
+  function showAll() {
+    setActive('');
+    transitionTo(ALL_PHOTOS, true);
+  }
+
+  function showGroup(g) {
+    setActive(g.slug);
+    var items = [];
+    g.segments.forEach(function (s, i) {
+      if (!s.photos.length) return;
+      if (i > 0 || s.label) items.push({ label: s.label || '' });
+      items.push.apply(items, s.photos);
+    });
+    transitionTo(items);
+  }
+
+  function route() {
+    var slug = location.hash.replace(/^#/, '');
+    var group = null;
+    GROUPS.forEach(function (g) { if (g.slug === slug) group = g; });
+    if (!lb.hidden) closeLb();
+    if (group) showGroup(group); else showAll();
+  }
+  window.addEventListener('hashchange', route);
+
+  // Lightbox
+  function wake() {
+    lb.classList.remove('idle');
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(function () { lb.classList.add('idle'); }, 2500);
+  }
+  function pi(i) { return (i + viewPhotos.length) % viewPhotos.length; }
+
+  function fitSize(p) {
+    var vw = window.innerWidth, vh = window.innerHeight;
+    var phone = Math.min(vw, vh) < 621;
+    var wf = 0.94, hf = 0.91;            // desktop
+    if (phone && vh >= vw) { wf = 1; }   // phone portrait: edge-to-edge
+    else if (phone) { wf = 0.92; }       // phone landscape: keep side margins (notch stays clear)
+    var s = Math.min(vw * wf / p.w, vh * hf / p.h);
+    return [Math.round(p.w * s), Math.round(p.h * s)];
+  }
+
+  function setCellImg(slot, idx) {
+    var p = viewPhotos[pi(idx)];
+    var d = fitSize(p);
+    var img = lbImgs[slot];
+    img.style.width = d[0] + 'px';
+    img.style.height = d[1] + 'px';
+    img.src = 'assets/img/large/' + p.f;
+    img.alt = 'Photograph ' + (pi(idx) + 1);
+  }
+
+  function setTrack(x, animate) {
+    lbTrack.classList.toggle('animate', !!animate);
+    lbTrack.style.transform = 'translateX(' + x + 'px)';
+  }
+
+  // lay out the 3-cell strip around the current photo, track parked on the middle cell
+  function layoutLb() {
+    var w = window.innerWidth;
+    for (var i = 0; i < 3; i++) lbCells[i].style.width = w + 'px';
+    setTrack(-w, false);
+    setCellImg(0, current - 1);
+    setCellImg(1, current);
+    setCellImg(2, current + 1);
+    lbCount.textContent = (current + 1) + ' / ' + viewPhotos.length;
+  }
+  window.addEventListener('resize', function () { if (!lb.hidden && !lbAnimating) layoutLb(); });
+
+  var lbAnimating = false;
+  var lbAnimTimer = null;
+  var lbPendingD = 0;
+
+  function finishStep() {
+    clearTimeout(lbAnimTimer);
+    if (!lbAnimating) return;
+    lbAnimating = false;
+    if (lbPendingD) current = pi(current + lbPendingD);
+    lbPendingD = 0;
+    layoutLb();
+  }
+  // slide one photo left/right (d = ±1), or settle back to center (d = 0)
+  function settle(d) {
+    lbAnimating = true;
+    lbPendingD = d;
+    var w = window.innerWidth;
+    setTrack(-w - d * w, true);
+    lbAnimTimer = setTimeout(finishStep, 310);
+  }
+  var COARSE = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+  function step(d) {
+    if (lbAnimating) finishStep(); // fast input: jump the running slide to its end, then go on
+    if (COARSE) { settle(d); return; } // touch devices: slide like the drag does
+    current = pi(current + d);         // desktop: instant swap, no animation
+    layoutLb();
+  }
+
+  function openLb(i) {
+    current = i;
+    lb.hidden = false;
+    document.body.style.overflow = 'hidden';
+    wake();
+    layoutLb();
+  }
+  function closeLb() {
+    lb.hidden = true;
+    document.body.style.overflow = '';
+    clearTimeout(idleTimer);
+    clearTimeout(lbAnimTimer);
+    lbAnimating = false;
+    lbPendingD = 0;
+    lb.classList.remove('idle');
+  }
+
+  lb.querySelector('.close').addEventListener('click', closeLb);
+  lb.querySelector('.prev').addEventListener('click', function () { step(-1); });
+  lb.querySelector('.next').addEventListener('click', function () { step(1); });
+  // clicks beside/above/below the photo navigate by screen half;
+  // closing is only via the X button or Escape, so fast clicking never closes
+  lb.addEventListener('click', function (e) {
+    if (suppressClick) { suppressClick = false; return; } // ignore the click a drag leaves behind
+    if (!e.target.classList.contains('lbCell')) return;
+    step(e.clientX < window.innerWidth / 2 ? -1 : 1);
+  });
+  lb.addEventListener('mousemove', wake);
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'f' || e.key === 'F') {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else document.documentElement.requestFullscreen();
+      return;
+    }
+    if (lb.hidden) return;
+    if (e.key === 'Escape') closeLb();
+    else if (e.key === 'ArrowLeft') step(-1);
+    else if (e.key === 'ArrowRight') step(1);
+  });
+
+  // finger-following swipe: the strip tracks the finger, neighbors pull in,
+  // release snaps to the next photo (past 20% width or with a flick) or back
+  var dragX = null, dragY = null, dragT = 0, dragAxis = null, dragging = false;
+  var suppressClick = false;
+  lb.addEventListener('touchstart', function (e) {
+    wake();
+    if (lbAnimating) finishStep();
+    dragging = true;
+    dragAxis = null;
+    dragX = e.changedTouches[0].clientX;
+    dragY = e.changedTouches[0].clientY;
+    dragT = e.timeStamp;
+  }, { passive: true });
+  lb.addEventListener('touchmove', function (e) {
+    if (!dragging) return;
+    var dx = e.changedTouches[0].clientX - dragX;
+    var dy = e.changedTouches[0].clientY - dragY;
+    if (!dragAxis && (Math.abs(dx) > 6 || Math.abs(dy) > 6)) {
+      dragAxis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y';
+    }
+    if (dragAxis === 'x') setTrack(-window.innerWidth + dx, false);
+  }, { passive: true });
+  lb.addEventListener('touchend', function (e) {
+    if (!dragging) return;
+    dragging = false;
+    var dx = e.changedTouches[0].clientX - dragX;
+    var dy = e.changedTouches[0].clientY - dragY;
+    var dt = Math.max(1, e.timeStamp - dragT);
+    if (dragAxis === 'y') {
+      if (Math.abs(dy) > 70) closeLb(); // swipe up/down closes
+      return;
+    }
+    if (dragAxis === 'x') {
+      suppressClick = true;
+      var flick = Math.abs(dx) / dt > 0.4; // px per ms
+      if (Math.abs(dx) > window.innerWidth * 0.2 || flick) settle(dx < 0 ? 1 : -1);
+      else settle(0); // not far enough: glide back
+    }
+  }, { passive: true });
+
+  route();
+})();
+</script>
+
+</body>
+</html>
