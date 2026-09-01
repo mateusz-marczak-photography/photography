@@ -4,6 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Mateusz Marczak Photography</title>
+<meta name="description" content="Photography portfolio of Mateusz Marczak">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Mateusz Marczak Photography">
+<meta property="og:description" content="Scotland · Stockholm · Italy · Paris · Côte d'Azur">
+<meta property="og:url" content="https://mateusz-marczak-photography.github.io/photography/">
+<meta property="og:image" content="https://mateusz-marczak-photography.github.io/photography/assets/img/thumb/001.jpg">
+<meta property="og:image:width" content="1400">
+<meta property="og:image:height" content="683">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="icon" type="image/png" href="assets/favicon.png">
 <link rel="apple-touch-icon" href="assets/favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -236,7 +245,8 @@
     .divider { margin: 22px 0 30px; }
     .sb { display: none; } /* mouse-driven; native touch scrolling needs no bar */
     .lb .prev, .lb .next { display: none; } /* swipe or tap sides instead */
-    .lb .close { padding: 16px; } /* bigger tap target */
+    .lb .count { display: none; } /* no photo numbers on mobile */
+    .lb .close { top: 0; right: 0; padding: 14px; } /* tight to the corner, still tappable */
   }
 </style>
 </head>
@@ -300,12 +310,8 @@
   var grid = document.getElementById('grid');
   var lb = document.getElementById('lb');
   var lbTrack = document.getElementById('lbTrack');
-  var lbCells = lbTrack.children;
-  var lbImgs = [
-    document.getElementById('lbImgPrev'),
-    document.getElementById('lbImg'),
-    document.getElementById('lbImgNext')
-  ];
+  var lbCells = [lbTrack.children[0], lbTrack.children[1], lbTrack.children[2]];
+  var LB_GAP = 28; // white space between photos while sliding
   var lbCount = document.getElementById('lbCount');
   var viewPhotos = [];
   var current = -1;
@@ -377,8 +383,11 @@
     var stale = wrap.querySelector('.grid.old');
     if (stale) wrap.removeChild(stale);
 
-    var hadContent = grid.children.length > 0;
-    if (hadContent) {
+    // on phones the clone crossfade is too heavy (it re-lays-out the whole
+    // grid and causes a visible flash), so swap instantly there
+    var fade = grid.children.length > 0 &&
+      !(window.matchMedia && window.matchMedia('(max-width: 620px)').matches);
+    if (fade) {
       var old = grid.cloneNode(true);
       old.removeAttribute('id');
       old.classList.add('old');
@@ -393,7 +402,7 @@
     grid.classList.toggle('all', !!isAll);
     renderGrid(items);
     window.scrollTo(0, 0);
-    if (hadContent) {
+    if (fade) {
       void grid.offsetWidth; // flush styles so the fade-in animates
       grid.classList.remove('entering');
     }
@@ -511,7 +520,7 @@
   function setCellImg(slot, idx) {
     var p = viewPhotos[pi(idx)];
     var d = fitSize(p);
-    var img = lbImgs[slot];
+    var img = lbCells[slot].firstElementChild;
     img.style.width = d[0] + 'px';
     img.style.height = d[1] + 'px';
     img.src = 'assets/img/large/' + p.f;
@@ -523,11 +532,16 @@
     lbTrack.style.transform = 'translateX(' + x + 'px)';
   }
 
+  function lbUnit() { return window.innerWidth + LB_GAP; }
+
   // lay out the 3-cell strip around the current photo, track parked on the middle cell
   function layoutLb() {
     var w = window.innerWidth;
-    for (var i = 0; i < 3; i++) lbCells[i].style.width = w + 'px';
-    setTrack(-w, false);
+    for (var i = 0; i < 3; i++) {
+      lbCells[i].style.width = w + 'px';
+      lbCells[i].style.marginRight = LB_GAP + 'px';
+    }
+    setTrack(-lbUnit(), false);
     setCellImg(0, current - 1);
     setCellImg(1, current);
     setCellImg(2, current + 1);
@@ -543,24 +557,40 @@
     clearTimeout(lbAnimTimer);
     if (!lbAnimating) return;
     lbAnimating = false;
-    if (lbPendingD) current = pi(current + lbPendingD);
+    var d = lbPendingD;
     lbPendingD = 0;
-    layoutLb();
+    if (!d) { setTrack(-lbUnit(), false); return; }
+    current = pi(current + d);
+    // recycle the cells: the photo that slid into view keeps its already
+    // decoded element, so nothing flashes or reloads; only the new outer
+    // neighbor gets a fresh src
+    if (d === 1) {
+      lbTrack.appendChild(lbCells[0]);
+      lbCells.push(lbCells.shift());
+      setTrack(-lbUnit(), false);
+      setCellImg(2, current + 1);
+    } else {
+      lbTrack.insertBefore(lbCells[2], lbCells[0]);
+      lbCells.unshift(lbCells.pop());
+      setTrack(-lbUnit(), false);
+      setCellImg(0, current - 1);
+    }
+    lbCount.textContent = (current + 1) + ' / ' + viewPhotos.length;
   }
   // slide one photo left/right (d = ±1), or settle back to center (d = 0)
   function settle(d) {
     lbAnimating = true;
     lbPendingD = d;
-    var w = window.innerWidth;
-    setTrack(-w - d * w, true);
+    setTrack(-lbUnit() - d * lbUnit(), true);
     lbAnimTimer = setTimeout(finishStep, 310);
   }
   var COARSE = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
   function step(d) {
     if (lbAnimating) finishStep(); // fast input: jump the running slide to its end, then go on
     if (COARSE) { settle(d); return; } // touch devices: slide like the drag does
-    current = pi(current + d);         // desktop: instant swap, no animation
-    layoutLb();
+    lbAnimating = true;                // desktop: same recycle path, just without animation
+    lbPendingD = d;
+    finishStep();
   }
 
   function openLb(i) {
@@ -624,7 +654,7 @@
     if (!dragAxis && (Math.abs(dx) > 6 || Math.abs(dy) > 6)) {
       dragAxis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y';
     }
-    if (dragAxis === 'x') setTrack(-window.innerWidth + dx, false);
+    if (dragAxis === 'x') setTrack(-lbUnit() + dx, false);
   }, { passive: true });
   lb.addEventListener('touchend', function (e) {
     if (!dragging) return;
