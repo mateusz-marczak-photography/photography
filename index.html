@@ -287,30 +287,26 @@
 </div>
 
 <script>
-  // always fetch the current photo list (it changes when build-images.ps1 runs)
-  document.write('<script src="assets/photos.js?ts=' + Date.now() + '"><\/script>');
+  // always fetch the current site content (edited by the Curate app)
+  document.write('<script src="assets/site.js?ts=' + Date.now() + '"><\/script>');
 </script>
 <script>
 (function () {
-  // Groups are defined by photo number ranges (from photos/ filenames).
-  // A group with several segments shows a labeled divider between them
-  // when that group is filtered.
-  // photos to hide from the site (files stay in photos/ untouched)
-  var HIDDEN = ['017b.jpg'];
-  // All page: these photos end column 1 and column 2 on desktop, so the
-  // column tops stay put when new photos are added. Update to rebalance.
-  var COL_BREAKS = ['017a.jpg', '032a.jpg'];
-  var ALL_PHOTOS = PHOTOS.filter(function (p) { return HIDDEN.indexOf(p.f) === -1; });
-
-  var GROUPS = [
-    { title: "Scotland",    segments: [{ from: 1, to: 9 }] },
-    { title: "Stockholm",   segments: [{ from: 10, to: 12 },
-                                       { label: "Autumn 2025", from: 47, to: 48 }] },
-    { title: "Italy",       segments: [{ from: 13, to: 17 }] },
-    { title: "Paris",       segments: [{ from: 18, to: 31 },
-                                       { label: "Autumn", from: 49, to: 51 }] },
-    { title: "Côte d'Azur", segments: [{ from: 32, to: 46 }] }
-  ];
+  // Site content lives in assets/site.js: ordered sections of photos, each
+  // belonging to a group, with an optional divider label; hidden photos carry
+  // hidden:true. The All page shows the sections in order; a group page shows
+  // that group's sections with dividers between them.
+  var COL_BREAKS = SITE.colBreaks || [];
+  var ALL_PHOTOS = [];
+  var GROUPS = [];
+  SITE.sections.forEach(function (s) {
+    var photos = s.photos.filter(function (p) { return !p.hidden; });
+    photos.forEach(function (p) { ALL_PHOTOS.push(p); });
+    var g = null;
+    GROUPS.forEach(function (x) { if (x.title === s.group) g = x; });
+    if (!g) { g = { title: s.group, segments: [] }; GROUPS.push(g); }
+    g.segments.push({ label: s.label || '', photos: photos });
+  });
 
   var groupsEl = document.getElementById('groups');
   var grid = document.getElementById('grid');
@@ -328,12 +324,6 @@
     g.slug = g.title.normalize('NFD')
       .replace(new RegExp('[\\u0300-\\u036f]', 'g'), '')
       .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-    g.segments.forEach(function (s) {
-      s.photos = ALL_PHOTOS.filter(function (p) {
-        var n = parseInt(p.f, 10);
-        return n >= s.from && n <= s.to;
-      });
-    });
   });
 
   // Nav: All + one link per group
