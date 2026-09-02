@@ -189,14 +189,15 @@
   /* sliding strip: [prev][current][next], each cell one viewport wide */
   .lbTrack {
     position: absolute;
-    top: 0; left: 0; height: 100%;
-    display: flex;
+    top: 0; left: 0; width: 100%; height: 100%;
     will-change: transform;
   }
   .lbTrack.animate { transition: transform 0.28s cubic-bezier(0.22, 0.61, 0.36, 1); }
+  /* cells are placed with transforms only (no DOM reordering), which avoids
+     re-rasterization flicker on phones when photos are recycled */
   .lbCell {
-    height: 100%;
-    flex: 0 0 auto;
+    position: absolute;
+    top: 0; left: 0; height: 100%;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -525,8 +526,9 @@
   // pick the smallest copy that still fills the screen's real pixels:
   // phones get the 1400px thumbs (already cached from the grid), 4K gets 3200px
   function lbSrc(p, d) {
+    var phone = Math.min(window.innerWidth, window.innerHeight) < 621;
     var need = d[0] * (window.devicePixelRatio || 1);
-    return 'assets/img/' + (need <= 1400 ? 'thumb' : 'large') + '/' + p.f;
+    return 'assets/img/' + (phone || need <= 1400 ? 'thumb' : 'large') + '/' + p.f;
   }
 
   function setCellImg(slot, idx) {
@@ -543,7 +545,7 @@
 
   // warm the browser cache two photos ahead in each direction
   function preloadAround() {
-    [-2, 2].forEach(function (o) {
+    [-3, -2, 2, 3].forEach(function (o) {
       var p = viewPhotos[pi(current + o)];
       var im = new Image();
       im.src = lbSrc(p, fitSize(p));
@@ -558,13 +560,17 @@
   function lbUnit() { return window.innerWidth + LB_GAP; }
 
   // lay out the 3-cell strip around the current photo, track parked on the middle cell
-  function layoutLb() {
+  // put the three cells left / middle / right of the viewport
+  function placeCells() {
     var w = window.innerWidth;
     for (var i = 0; i < 3; i++) {
       lbCells[i].style.width = w + 'px';
-      lbCells[i].style.marginRight = LB_GAP + 'px';
+      lbCells[i].style.transform = 'translateX(' + ((i - 1) * lbUnit()) + 'px)';
     }
-    setTrack(-lbUnit(), false);
+  }
+  function layoutLb() {
+    placeCells();
+    setTrack(0, false);
     setCellImg(0, current - 1);
     setCellImg(1, current);
     setCellImg(2, current + 1);
@@ -583,22 +589,17 @@
     lbAnimating = false;
     var d = lbPendingD;
     lbPendingD = 0;
-    if (!d) { setTrack(-lbUnit(), false); return; }
+    if (!d) { setTrack(0, false); return; }
     current = pi(current + d);
     // recycle the cells: the photo that slid into view keeps its already
-    // decoded element, so nothing flashes or reloads; only the new outer
+    // decoded element (only its transform changes), and only the new outer
     // neighbor gets a fresh src
-    if (d === 1) {
-      lbTrack.appendChild(lbCells[0]);
-      lbCells.push(lbCells.shift());
-      setTrack(-lbUnit(), false);
-      setCellImg(2, current + 1);
-    } else {
-      lbTrack.insertBefore(lbCells[2], lbCells[0]);
-      lbCells.unshift(lbCells.pop());
-      setTrack(-lbUnit(), false);
-      setCellImg(0, current - 1);
-    }
+    if (d === 1) lbCells.push(lbCells.shift());
+    else lbCells.unshift(lbCells.pop());
+    placeCells();
+    setTrack(0, false);
+    if (d === 1) setCellImg(2, current + 1);
+    else setCellImg(0, current - 1);
     lbCount.textContent = (current + 1) + ' / ' + viewPhotos.length;
     preloadAround();
   }
@@ -606,7 +607,7 @@
   function settle(d) {
     lbAnimating = true;
     lbPendingD = d;
-    setTrack(-lbUnit() - d * lbUnit(), true);
+    setTrack(-d * lbUnit(), true);
     lbAnimTimer = setTimeout(finishStep, 310);
   }
   var COARSE = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
@@ -679,7 +680,7 @@
     if (!dragAxis && (Math.abs(dx) > 6 || Math.abs(dy) > 6)) {
       dragAxis = Math.abs(dx) >= Math.abs(dy) ? 'x' : 'y';
     }
-    if (dragAxis === 'x') setTrack(-lbUnit() + dx, false);
+    if (dragAxis === 'x') setTrack(dx, false);
   }, { passive: true });
   lb.addEventListener('touchend', function (e) {
     if (!dragging) return;
