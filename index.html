@@ -248,6 +248,11 @@
     .lb .count { display: none; } /* no photo numbers on mobile */
     .lb .close { top: 0; right: 0; padding: 14px; } /* tight to the corner, still tappable */
   }
+  /* phones held sideways: same viewer chrome as portrait */
+  @media (max-height: 520px) and (orientation: landscape) {
+    .lb .prev, .lb .next, .lb .count { display: none; }
+    .lb .close { top: 0; right: 0; padding: 14px; }
+  }
 </style>
 </head>
 <body>
@@ -517,14 +522,32 @@
     return [Math.round(p.w * s), Math.round(p.h * s)];
   }
 
+  // pick the smallest copy that still fills the screen's real pixels:
+  // phones get the 1400px thumbs (already cached from the grid), 4K gets 3200px
+  function lbSrc(p, d) {
+    var need = d[0] * (window.devicePixelRatio || 1);
+    return 'assets/img/' + (need <= 1400 ? 'thumb' : 'large') + '/' + p.f;
+  }
+
   function setCellImg(slot, idx) {
     var p = viewPhotos[pi(idx)];
     var d = fitSize(p);
     var img = lbCells[slot].firstElementChild;
     img.style.width = d[0] + 'px';
     img.style.height = d[1] + 'px';
-    img.src = 'assets/img/large/' + p.f;
+    img.decoding = 'async';
+    img.src = lbSrc(p, d);
     img.alt = 'Photograph ' + (pi(idx) + 1);
+    if (img.decode) img.decode().catch(function () {}); // decode off-screen, so sliding in never flashes
+  }
+
+  // warm the browser cache two photos ahead in each direction
+  function preloadAround() {
+    [-2, 2].forEach(function (o) {
+      var p = viewPhotos[pi(current + o)];
+      var im = new Image();
+      im.src = lbSrc(p, fitSize(p));
+    });
   }
 
   function setTrack(x, animate) {
@@ -546,6 +569,7 @@
     setCellImg(1, current);
     setCellImg(2, current + 1);
     lbCount.textContent = (current + 1) + ' / ' + viewPhotos.length;
+    preloadAround();
   }
   window.addEventListener('resize', function () { if (!lb.hidden && !lbAnimating) layoutLb(); });
 
@@ -576,6 +600,7 @@
       setCellImg(0, current - 1);
     }
     lbCount.textContent = (current + 1) + ' / ' + viewPhotos.length;
+    preloadAround();
   }
   // slide one photo left/right (d = ±1), or settle back to center (d = 0)
   function settle(d) {
