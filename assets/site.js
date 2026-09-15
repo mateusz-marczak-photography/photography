@@ -450,5 +450,7 @@ const SITE = {
       ]
     }
   ],
-  "colBreaks": []
+  "colBreaks": [
+    "038.jpg"
+  ]
 };
